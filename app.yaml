@@ -1,0 +1,156 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-loader
+  labels:
+    app: rps
+    role: agent-loader
+    location: PyCampEs
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rps
+      role: agent-loader
+      location: PyCampEs
+  template:
+    metadata:
+      labels:
+        app: rps
+        role: agent-loader
+        location: PyCampEs
+    spec:
+      containers:
+        - name: rps-agent-loader
+          image: fettleif/pycamp-rps-load-agents:0.0.1
+          env:
+            - name: AGENT_DIR
+              value: "/agents"
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "128Mi"
+            limits:
+              cpu: "5000m"
+              memory: "1024Mi"
+          ports:
+            - containerPort: 80
+          volumeMounts:
+            - name: shared-agents
+              mountPath: /agents
+      volumes:
+        - name: shared-agents
+          persistentVolumeClaim:
+            claimName: agents
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-runner
+  labels:
+    app: rps
+    role: agent-runner
+    location: PyCampEs
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rps
+      role: agent-runner
+      location: PyCampEs
+  template:
+    metadata:
+      labels:
+        app: rps
+        role: agent-runner
+        location: PyCampEs
+    spec:
+      containers:
+        - name: rps-agent-runner
+          image: fettleif/pycamp-rps-tournament-runner:0.0.2
+          env:
+            - name: COMPETE_AGENT_DIR
+              valueFrom:
+                configMapKeyRef:
+                  name: runner-variables
+                  key: COMPETE_AGENT_DIR_CM
+            - name: AGENT_DIR
+              valueFrom:
+                configMapKeyRef:
+                  name: runner-variables
+                  key: AGENT_DIR_CM
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "128Mi"
+            limits:
+              cpu: "5000m"
+              memory: "1024Mi"
+          ports:
+            - containerPort: 8000
+          volumeMounts:
+            - name: shared-agents
+              mountPath: /live_agents
+            - name: dummy
+              mountPath: /usr/src/compete_agents
+      volumes:
+        - name: shared-agents
+          persistentVolumeClaim:
+            claimName: agents
+        - name: dummy
+          emptyDir: {}
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: agents
+  labels:
+    app: rps
+spec:
+  storageClassName: standard
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: runner-variables
+data:
+  COMPETE_AGENT_DIR_CM: "/usr/src/compete_agents"
+  AGENT_DIR_CM: "/live_agents"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent-loader-service
+spec:
+  selector:
+    app: rps
+    role: agent-loader
+    location: PyCampEs
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent-runner-service
+spec:
+  selector:
+    app: rps
+    role: agent-runner
+    location: PyCampEs
+  ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: 8000
